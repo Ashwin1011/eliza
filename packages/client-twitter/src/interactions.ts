@@ -17,43 +17,42 @@ import {
 } from "@elizaos/core";
 import { ClientBase } from "./base";
 import { buildConversationThread, sendTweet, wait } from "./utils.ts";
+import dishes from "./files/dishes.json";
 
-export const twitterMessageHandlerTemplate =
-    `
-# Areas of Expertise
-{{knowledge}}
-
+export const twitterMessageHandlerTemplate = `
 # About {{agentName}} (@{{twitterUserName}}):
 {{bio}}
-{{lore}}
 {{topics}}
-
-{{providers}}
-
-{{characterPostExamples}}
-
-{{postDirections}}
-
-Recent interactions between {{agentName}} and other users:
-{{recentPostInteractions}}
-
-{{recentPosts}}
-
-# TASK: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) while using the thread of tweets as additional context:
 
 Current Post:
 {{currentPost}}
 
-Thread of Tweets You Are Replying To:
+Thread Context:
 {{formattedConversation}}
 
-# INSTRUCTIONS: Generate a post in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}). You MUST include an action if the current post text includes a prompt that is similar to one of the available actions mentioned here:
-{{actionNames}}
-{{actions}}
+# DISH IDENTIFICATION RULES:
+If user asks "what/which dish am I":
+1. You have to read {{tweetTexts}}, analyze the personality and suggest a dish from {{dishes}}
+2. For example, "You are person with interest in AI, Food and Cooking, you are a foodie and have a tangy taste. You must be a PEPPERONI PIZZA"
+3. Response must:
+   - Be between 160-180 chars
+   - Include personality match reasoning
+   - Add attachment: 'https://gobbl-bucket.s3.ap-south-1.amazonaws.com/redketchup/<tokenId>.png'
+   - Use format:
+\`\`\`json
+{ "user": "{{agentName}}", "text": "string", "action": "string", "attachments": [{ "url": "string", "contentType": "image/png" }] }
+\`\`\`
 
-Here is the current post text again. Remember to include an action if the current post text includes a prompt that asks for one of the available actions mentioned above (does not need to be exact)
-{{currentPost}}
-` + messageCompletionFooter;
+# GENERAL RULES:
+1. Stay in character as {{agentName}}
+2. Between 160-180 characters
+3. Include action if prompted ({{actionNames}})
+4. Use format:
+\`\`\`json
+{ "user": "{{agentName}}", "text": "string", "action": "string" }
+\`\`\`
+`;
+// + messageCompletionFooter;
 
 export const twitterShouldRespondTemplate = (targetUsersStr: string) =>
     `# INSTRUCTIONS: Determine if {{agentName}} (@{{twitterUserName}}) should respond to the message and participate in the conversation. Do not comment. Just respond with "true" or "false".
@@ -128,7 +127,8 @@ export class TwitterInteractionClient {
             let uniqueTweetCandidates = [...mentionCandidates];
             // Only process target users if configured
             if (this.client.twitterConfig.TWITTER_TARGET_USERS.length) {
-                const TARGET_USERS = this.client.twitterConfig.TWITTER_TARGET_USERS;
+                const TARGET_USERS =
+                    this.client.twitterConfig.TWITTER_TARGET_USERS;
 
                 elizaLogger.log("Processing target users:", TARGET_USERS);
 
@@ -245,6 +245,16 @@ export class TwitterInteractionClient {
                     }
                     elizaLogger.log("New Tweet found", tweet.permanentUrl);
 
+                    const userTweets = (
+                        await this.client.twitterClient.fetchSearchTweets(
+                            `from:${tweet.username}`,
+                            25,
+                            SearchMode.Latest
+                        )
+                    ).tweets;
+
+                    const tweetTexts = userTweets.map((tweet) => tweet.text);
+
                     const roomId = stringToUuid(
                         tweet.conversationId + "-" + this.runtime.agentId
                     );
@@ -278,6 +288,7 @@ export class TwitterInteractionClient {
                         tweet,
                         message,
                         thread,
+                        tweetTexts,
                     });
 
                     // Update the last checked tweet ID after processing each tweet
@@ -298,10 +309,12 @@ export class TwitterInteractionClient {
         tweet,
         message,
         thread,
+        tweetTexts,
     }: {
         tweet: Tweet;
         message: Memory;
         thread: Tweet[];
+        tweetTexts: string[];
     }) {
         if (tweet.userId === this.client.profile.id) {
             // console.log("skipping tweet from bot itself", tweet.id);
@@ -344,6 +357,8 @@ export class TwitterInteractionClient {
             twitterUserName: this.client.twitterConfig.TWITTER_USERNAME,
             currentPost,
             formattedConversation,
+            tweetTexts: tweetTexts.join("\n"),
+            dishes: JSON.stringify(dishes),
         });
 
         // check if the tweet exists, save if it doesn't
@@ -378,7 +393,8 @@ export class TwitterInteractionClient {
         }
 
         // get usernames into str
-        const validTargetUsersStr = this.client.twitterConfig.TWITTER_TARGET_USERS.join(",");
+        const validTargetUsersStr =
+            this.client.twitterConfig.TWITTER_TARGET_USERS.join(",");
 
         const shouldRespondContext = composeContext({
             state,
