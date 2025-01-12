@@ -37,7 +37,7 @@ If user asks "what/which dish am I":
 3. Response must:
    - Be between 160-180 chars
    - Include personality match reasoning
-   - Add attachment: 'https://gobbl-bucket.s3.ap-south-1.amazonaws.com/dishes600/<tokenId>.png'
+   - Add attachment: 'https://gobbl-bucket.s3.ap-south-1.amazonaws.com/<tokenId>.png'
    - Use format:
 \`\`\`json
 { "user": "{{agentName}}", "text": "string", "action": "string", "attachments": [{ "url": "string", "contentType": "image/png" }] }
